@@ -2,20 +2,33 @@ import path from "path";
 import fs from "fs";
 import { exec, resolvePath } from "./utils";
 
+const Deps = {
+  core: "@rspack/core",
+  cli: "@rspack/cli",
+  binding: "@rspack/binding",
+};
+
+enum State {
+  unlink = 0,
+  linked = 1,
+}
+
+interface Paths {
+  resolved?: string; // require.resolve('@rspack/xxx')
+  local?: string; // Your local rspack project
+  backup?: string; // backup resolved
+}
+
 class Linker {
-  /**
-   * @private pathMap
-   * [current, local, backup]
-   * - current: current directory after dependency install.
-   * - local: local rspack directory.
-   * - backup: backup current directory.
-   */
-  private pathMap: Record<string, string[]> = {
-    core: [],
-    cli: [],
-    binding: [],
+  private pathMap: Record<string, Paths> = {
+    core: {},
+    cli: {},
+    binding: {},
   };
+
   private localDir = ""; // rspack project local directory.
+
+  private state: State = State.unlink;
 
   // tmp file path
   private tmpFile = path.join(
@@ -30,24 +43,57 @@ class Linker {
   /**
    * link rspack dependency
    */
-  link() {}
+  async link() {
+    if (this.state === State.linked) {
+      console.log(`Had Linked !`);
+      return;
+    }
+    const core = this.pathMap.core;
+    const binding = this.pathMap.binding;
+
+    await exec(`rm -rf ${core.resolved}`);
+    await exec(`ln -s ${core.local} ${core.resolved}`);
+
+    await exec(`rm -rf ${binding.resolved}`);
+    await exec(`ln -s ${binding.local} ${binding.resolved}`);
+
+    console.log("linked");
+  }
 
   /**
    * restore rspack dependency
    */
   restore() {}
 
+  async backup() {
+    const core = this.pathMap.core;
+    const binding = this.pathMap.binding;
+
+    if (core.backup && !fs.existsSync(core.backup)) {
+      // core is a dir
+      await exec(`cp -rf ${core.resolved}, ${core.backup}`);
+    }
+
+    if (binding.backup && !fs.existsSync(binding.backup)) {
+      // binding is a link
+      fs.symlinkSync(
+        fs.readlinkSync(binding.resolved as string),
+        binding.backup
+      );
+    }
+  }
+
   /**
    * prepare paths
    */
-  private prepare() {
+  private async prepare() {
     if (this.read()) {
       return;
     }
 
     this.getLocalDir();
-    const cliPath = resolvePath("@rspack/cli");
-    const corePath = resolvePath("@rspack/core");
+    const cliPath = resolvePath(Deps.cli);
+    const corePath = resolvePath(Deps.core);
 
     if (!cliPath && !corePath) {
       throw new Error(`Cannot find @rspack/cli or @rspack/core !`);
@@ -59,12 +105,31 @@ class Linker {
       this.getPathByCli();
     }
 
+    await this.backup();
     this.save();
   }
 
-  private getPathByCore() {}
+  private getPathByCore() {
+    const _p = resolvePath(Deps.core);
+    // path in node_modules/xxx/xxx/xxx/@rspack/
+    const resolved = _p.substring(0, _p.indexOf(Deps.core) + 8);
 
-  private getPathByCli() {}
+    this.pathMap.core = {
+      resolved: path.join(resolved, "core"),
+      local: path.join(this.localDir, "/packages/rspack"),
+      backup: path.join(resolved, "core_backup"),
+    };
+
+    this.pathMap.binding = {
+      resolved: path.join(resolved, "binding"),
+      local: path.join(this.localDir, "binding"),
+      backup: path.join(resolved, "binding_backup"),
+    };
+  }
+
+  private getPathByCli() {
+    // TODO
+  }
 
   private save() {
     if (!fs.existsSync(this.tmpFile)) {
@@ -79,7 +144,6 @@ class Linker {
       );
       return true;
     }
-
     return false;
   }
 
@@ -98,7 +162,9 @@ class Linker {
       }
     }
 
-    throw Error('Cannot find "rspackDir" in package.json !');
+    throw Error(
+      'Cannot find neither process.env.RSPACK_DIR nor "rspackDir" in package.json !'
+    );
   }
 }
 
