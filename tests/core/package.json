@@ -1,0 +1,5 @@
+{
+  "devDependencies": {
+    "@rspack/core": "0.1.11"
+  }
+}

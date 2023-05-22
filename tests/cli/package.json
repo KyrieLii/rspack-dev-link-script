@@ -1,0 +1,5 @@
+{
+  "devDependencies": {
+    "@rspack/cli": "0.1.11"
+  }
+}

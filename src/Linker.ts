@@ -122,7 +122,7 @@ class Linker {
 
     this.pathMap.binding = {
       resolved: path.join(resolved, "binding"),
-      local: path.join(this.localDir, "binding"),
+      local: path.join(this.localDir, "/crates/node_binding"),
       backup: path.join(resolved, "binding_backup"),
     };
   }
